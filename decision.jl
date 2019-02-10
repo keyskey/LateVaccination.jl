@@ -21,19 +21,19 @@ module Decision
 
     function count_payoff(society, cr::Float64)
         for id in 1:society.total_population
-            added_point = @match society.state[id], society.strategy[id] begin
+            point::Float64 = @match society.state[id], society.strategy[id] begin
                 "IM", _    => -cr
                 "S" , "LV" => 0
                 "R" , "LV" => -1
                  _  , _    => error("Error in count_payoff")               
             end
-            society.point[id] += added_point
+            society.point[id] = point
         end
     end
 
     # IBRA
     function update_strategy(society)
-        next_strategy::Vector{AbstractString} = []
+        next_strategy::Vector{AbstractString} = copy(society.strategy)
         for id in 1:society.total_population
             opp_id = rand(1:society.total_population)
             while opp_id == id
@@ -41,9 +41,7 @@ module Decision
             end
             
             if society.strategy[opp_id] != society.strategy[id] && rand() < 1/( 1 + exp( ( society.point[id] - society.point[opp_id] )/0.1 ) )
-                push!(next_strategy, society.strategy[opp_id])
-            else
-                push!(next_strategy, society.strategy[id])
+                next_strategy[id] = society.strategy[opp_id]
             end
         end
         

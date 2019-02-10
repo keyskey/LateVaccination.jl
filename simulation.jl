@@ -2,9 +2,9 @@ include("epidemics.jl")
 include("decision.jl")
 
 module Simulation
-    using ..Society
     using ..Epidemics
     using ..Decision
+    using ..Society
     using Random
     using CSV
     using DataFrames
@@ -18,13 +18,13 @@ module Simulation
         fpv0, flv0 = Society.count_strategy_fraction(society)
         fpv_hist = [fpv0]
 
-        for season in 1:1000
+        for season in 1:500
             Epidemics.initialize_epidemics(society, beta, gamma, m, num_initial_i)
             fs0, fim0, fi0, fr0 = Society.count_state_fraction(society)
             days = society.elapse_days
-            @printf("Cr: %.1f Step: 0 Days: %.2f Fs: %.4f Fim: %.4f Fi: %.4f Fr: %.4f Fpv: %.4f Flv: %.4f \n", cr, days, fs0, fim0, fi0, fr0, fpv0, flv0)
+            @printf("Cr: %.1f Season: %i Step: 0 Days: %.2f Fs: %.4f Fim: %.4f Fi: %.4f Fr: %.4f \n", cr, season, days, fs0, fim0, fi0, fr0)
 
-            global FES = Epidemics.one_season(society, beta, gamma, m, cr)
+            global FES, fim = Epidemics.one_season(society, beta, gamma, m, cr, season)
             Decision.count_payoff(society, cr)
             Decision.update_strategy(society)
             global fpv, flv = Society.count_strategy_fraction(society)
@@ -38,14 +38,15 @@ module Simulation
         end
 
         SAP = Society.count_SAP(society)
+        @printf("Cr: %.1f Finished with FES: %.4f Fim: %.4f Fpv: %.4f SAP: %.3f \n", cr, FES, fim, fpv, SAP)
         
-        return FES, fpv, SAP
+        return FES, fim, fpv, SAP
     end
 
     # Get data for one Cr-Effectiveness phase diagram
     function one_episode(total_population::Int, episode::Int)
         Random.seed!()
-        DataFrame(Cr = [], FES = [], VC = [], SAP = []) |> CSV.write("result$(episode).csv")
+        DataFrame(Cr = [], FES = [], Fim = [], Fpv = [], SAP = []) |> CSV.write("result$(episode).csv")
         beta::Float64 = 0.000086  # 0.00008599
         gamma::Float64 = 1/3
         m::Float64 = 0.6
@@ -53,9 +54,9 @@ module Simulation
         initial_pv::Vector{Int} = Decision.choose_initial_pv(total_population)
         society = SocietyType(total_population)
 
-        for cr::Float64 in [0.1] # = 0:0.1:1
-            FES, fpv, SAP = season_loop(society, beta, gamma, m, cr, num_initial_i, initial_pv)
-            DataFrame(Cr = [cr], FES = [FES], VC = [VC], SAP = [SAP]) |> CSV.write("result$(episode).csv", append=true)
+        for cr::Float64 in 0:0.1:1
+            FES, fim, fpv, SAP = season_loop(society, beta, gamma, m, cr, num_initial_i, initial_pv)
+            DataFrame(Cr = [cr], FES = [FES], Fim = [fim], Fpv = [fpv], SAP = [SAP]) |> CSV.write("result$(episode).csv", append=true)
         end
     end
 end

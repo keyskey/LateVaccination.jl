@@ -50,7 +50,7 @@ module Epidemics
         society.total_probability = (Ps_i + P_vaccinate) * society.num_s + Pi_r * society.num_i
     end
 
-    function one_season(society::SocietyType, beta::Float64, gamma::Float64, m::Float64, cr::Float64)
+    function one_season(society::SocietyType, beta::Float64, gamma::Float64, m::Float64, cr::Float64, season::Int)
         for timestep in 1:10000000
             rand_num::Float64 = rand()
             accum_probability::Float64 = 0.0
@@ -93,7 +93,7 @@ module Epidemics
             set_total_probability(society, beta, gamma, m)
             days = count_elapse_days(society)
             global fs, fim, fi, fr = Society.count_state_fraction(society)
-            @printf("Cr: %.1f Step: %i Days: %.2f Fs: %.4f Fim: %.4f Fi: %.4f Fr: %.4f \n", cr, timestep, days, fs, fim, fi, fr)
+            @printf("Cr: %.1f Season: %i Step: %i Days: %.2f Fs: %.4f Fim: %.4f Fi: %.4f Fr: %.4f \n", cr, season, timestep, days, fs, fim, fi, fr)
 
             # Check conversion
             if society.num_i == 0
@@ -101,7 +101,7 @@ module Epidemics
             end
         end
         
-        return fr
+        return fr, fim
     end
 
     function state_change(society::SocietyType, id::Int)
