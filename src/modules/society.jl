@@ -41,12 +41,7 @@ module Society
         return fs, fim, fi, fr
     end
 
-    function count_strategy_fraction(society::SocietyType)
-        fpv = length(filter(strategy -> strategy == "PV", society.strategy))/society.total_population
-        flv = length(filter(strategy -> strategy == "LV", society.strategy))/society.total_population
-
-        return fpv, flv
-    end
+    count_strategy_fraction(society::SocietyType) = length(filter(strategy -> strategy == "PV", society.strategy))/society.total_population 
 
     count_SAP(society::SocietyType) = Statistics.mean(society.point)
 end

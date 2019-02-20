@@ -1,9 +1,7 @@
 module Decision
     using StatsBase
-    using Match
 
-    function choose_initial_pv(total_population)
-        num_initial_pv::Int = div(total_population, 2)
+    function choose_initial_pv(total_population::Int, num_initial_pv::Int)
         initial_pv::Vector{Int} = StatsBase.self_avoid_sample!(Vector(1:total_population), Vector(1:num_initial_pv))
 
         return initial_pv
@@ -17,18 +15,24 @@ module Decision
                 society.strategy[id] = "LV"
             end
         end
+
+        return society
     end
 
     function count_payoff(society, cr::Float64)
         for id in 1:society.total_population
-            point::Float64 = @match society.state[id], society.strategy[id] begin
-                "IM", _    => -cr
-                "S" , "LV" => 0
-                "R" , "LV" => -1
-                 _  , _    => error("Error in count_payoff")               
+            if society.state[id] == "IM"
+                society.point[id] = -cr
+            elseif society.strategy[id] == "LV"
+                if society.state[id] == "S"
+                    society.point[id] = 0
+                elseif society.state[id] == "R"
+                    society.point[id] = -1
+                end
             end
-            society.point[id] = point
         end
+
+        return society
     end
 
     # IBRA
@@ -46,5 +50,7 @@ module Decision
         end
         
         society.strategy = copy(next_strategy)
+
+        return society
     end
 end
