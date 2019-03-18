@@ -1,5 +1,11 @@
 /result
 /docs
+
+# Ignore caches
 /.ipynb_checkpoints
 /*/.ipynb_checkpoints
 /*/*/.ipynb_checkpoints
+
+# Ignore csv files
+/*/*.csv
+/*/*/*.csv
