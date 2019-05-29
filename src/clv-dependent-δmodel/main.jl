@@ -46,7 +46,7 @@ module Society
         delta::Float64
         Cpv::Float64
         Clv::Float64
-        effectiveness::Float64
+        Effectiveness::Float64
         num_initial_i::Int
         initial_pv::Vector{Int}
     end
@@ -63,7 +63,7 @@ module Society
 
     count_fpv(society::SocietyType) = length(filter(strategy -> strategy == "PV", society.strategy))/society.num_tot
 
-    count_SAP(society::SocietyType) = Statistics.mean(society.point)
+    count_sap(society::SocietyType) = Statistics.mean(society.point)
 end
 
 #@everywhere module Epidemics
@@ -73,7 +73,7 @@ module Epidemics
     using Printf
     using ..Society
 
-    function initialize_state(society::SocietyType, params::Params)
+    function initialize_state!(society::SocietyType, params::Params)
         society.survivors = Vector(1:society.num_tot)  # Need to remove vaccinated agents
         society.vaccinated = fill(false, society.num_tot)
         society.elapse_days = 0
@@ -89,7 +89,7 @@ module Epidemics
             elseif society.strategy[id] == "PV"
                 society.vaccinated[id] = true
                 society.num_v += 1
-                if rand() < params.effectiveness
+                if rand() < params.Effectiveness
                     society.state[id] = "IM"
                     society.num_im += 1
                     deleteat!(society.survivors, findfirst(isequal(id), society.survivors))
@@ -103,27 +103,22 @@ module Epidemics
             end
         end
 
-        society = set_total_probability(society, params)
-
-        return society
+        set_total_probability!(society, params)
     end
 
-    function set_total_probability(society::SocietyType, params::Params)
+    function set_total_probability!(society::SocietyType, params::Params)
         Ps_i = params.beta * society.num_i
         Pi_r = params.gamma
         P_v =  count_vaccination_probability(society, params)
         num_healthy_non_v = count_num_healthy_non_v(society)
-
         society.total_probability = Ps_i * society.num_s + Pi_r * society.num_i + P_v * num_healthy_non_v
-
-        return society
     end
 
     count_num_healthy_non_v(society::SocietyType) = length([id for id in society.survivors if society.state[id] == "S" && society.vaccinated[id] == false])
 
     count_vaccination_probability(society::SocietyType, params::Params) = params.delta * society.num_i/(society.num_v + 1)
 
-    function one_season(society::SocietyType, params::Params, season::Int)
+    function one_season!(society::SocietyType, params::Params, season::Int)
         for timestep in 1:1000000
             rand_num = rand()
             accum_probability = 0.0
@@ -147,7 +142,7 @@ module Epidemics
                         accum_probability += Pi_r
                     end
                     if rand_num <= accum_probability/society.total_probability
-                        society = state_change(society, id)
+                        state_change!(society, id)
                         someone_selected = true
                         break
                     end
@@ -160,7 +155,7 @@ module Epidemics
                     if society.state[id] == "S" && society.vaccinated[id] == false
                         accum_probability += P_v
                         if rand_num <= accum_probability/society.total_probability
-                            society = vaccination(society, id, params)
+                            vaccination!(society, id, params)
                             someone_selected = true
                             break
                         end
@@ -168,13 +163,13 @@ module Epidemics
                 end
             end
 
-            society = set_total_probability(society, params)
+            set_total_probability!(society, params)
             days = count_elapse_days(society)
             fs, fv, fim, fi, fr = Society.count_state_fraction(society)
             @printf("Cpv: %.1f Clv: %.1f Effectiveness: %.1f Season: %i Step: %i Days: %.2f Fs: %.4f Fv: %.4f Fim: %.4f Fi: %.4f Fr: %.4f \n",
                     params.Cpv,
                     params.Clv,
-                    params.effectiveness,
+                    params.Effectiveness,
                     season,
                     timestep,
                     days,
@@ -194,11 +189,9 @@ module Epidemics
                 break
             end
         end
-
-        return society
     end
 
-    function state_change(society::SocietyType, id::Int)
+    function state_change!(society::SocietyType, id::Int)
         if society.state[id] == "S"
             next_state = "I"
             society.num_s -= 1
@@ -210,21 +203,17 @@ module Epidemics
             deleteat!(society.survivors, findfirst(isequal(id), society.survivors))
         end
         society.state[id] = next_state
-
-        return society
     end
 
-    function vaccination(society::SocietyType, id::Int, params::Params)
+    function vaccination!(society::SocietyType, id::Int, params::Params)
         society.vaccinated[id] = true
         society.num_v += 1
-        if rand() < params.effectiveness
+        if rand() < params.Effectiveness
             society.state[id] = "IM"
             society.num_s -= 1
             society.num_im += 1
             deleteat!(society.survivors, findfirst(isequal(id), society.survivors))
         end
-
-        return society
     end
 
     function count_elapse_days(society::SocietyType)
@@ -245,19 +234,11 @@ module Decision
         return initial_pv
     end
 
-    function initialize_strategy(society::SocietyType, params::Params)
-        for id in 1:society.num_tot
-            if id in params.initial_pv
-                society.strategy[id] = "PV"
-            else
-                society.strategy[id] = "LV"
-            end
-        end
-
-        return society
+    function initialize_strategy!(society::SocietyType, params::Params)
+        society.strategy = map(id -> ifelse(id in params.initial_pv, "PV", "LV"), 1:society.num_tot)
     end
 
-    function count_payoff(society::SocietyType, params::Params)
+    function count_payoff!(society::SocietyType, params::Params)
         Cpv = params.Cpv
         Clv = params.Clv
         for id in 1:society.num_tot
@@ -285,11 +266,9 @@ module Decision
                 end
             end
         end
-
-        return society
     end
 
-    function update_strategy(society::SocietyType)
+    function update_strategy!(society::SocietyType)
         next_strategy::Vector{AbstractString} = copy(society.strategy)
         for id in 1:society.num_tot
             opp_id = rand(1:society.num_tot)
@@ -303,8 +282,6 @@ module Decision
         end
 
         society.strategy = copy(next_strategy)
-
-        return society
     end
 end
 
@@ -323,7 +300,7 @@ module Simulation
     # Calculation for a pair of (Cpv, Clv, Effectiveness).
     function season_loop(society::SocietyType, params::Params)
         ###################### Initialization #####################
-        society = Decision.initialize_strategy(society, params)
+        Decision.initialize_strategy!(society, params)
         fpv0 = Society.count_fpv(society)
         fes_hist = []
         fv_hist  = []
@@ -336,13 +313,13 @@ module Simulation
         while true
             ######################## Initialization ########################
             season += 1
-            society = Epidemics.initialize_state(society, params)
+            Epidemics.initialize_state!(society, params)
             fs0, fv0, fim0, fi0, fr0 = Society.count_state_fraction(society)
             fpv_this_season = Society.count_fpv(society)
             @printf("Cpv: %.1f Clv: %.1f Effectiveness: %.1f Season: %i Step: %i Days: %.1f Fs: %.4f Fv: %.4f Fim: %.4f Fi: %.4f Fr: %.4f \n",
                     params.Cpv,
                     params.Clv,
-                    params.effectiveness,
+                    params.Effectiveness,
                     season,
                     0,
                     society.elapse_days,
@@ -354,9 +331,13 @@ module Simulation
             ################################################################
 
             # One season
-            society = Epidemics.one_season(society, params, season) |> (result -> Decision.count_payoff(result, params)) |> Decision.update_strategy
+            Epidemics.one_season!(society, params, season)
+            Decision.count_payoff!(society, params)
+            Decision.update_strategy!(society)
+
+            # Get final state
             fs, fv, fim, fi, fes = Society.count_state_fraction(society)
-            sap = Society.count_SAP(society)
+            sap = Society.count_sap(society)
             fpv_next_season = Society.count_fpv(society)
             push!(fes_hist, fes)
             push!(fv_hist, fv)
@@ -387,7 +368,7 @@ module Simulation
         @printf("Cpv: %.1f Clv: %.1f Effectiveness: %.1f Finished with FES: %.4f Fv: %.4f Fim: %.4f Fpv: %.4f SAP: %.3f \n",
                 params.Cpv,
                 params.Clv,
-                params.effectiveness,
+                params.Effectiveness,
                 FES,
                 Fv,
                 Fim,
@@ -396,7 +377,7 @@ module Simulation
 
         result = Dict("Cpv"           => params.Cpv,
                       "Clv"           => params.Clv,
-                      "Effectiveness" => params.effectiveness,
+                      "Effectiveness" => params.Effectiveness,
                       "FES"           => FES,
                       "Fv"            => Fv,
                       "Fim"           => Fim,
@@ -416,14 +397,14 @@ module Simulation
         initial_pv::Vector{Int} = Decision.choose_initial_pv(population, num_initial_pv)
         society = SocietyType(population)
 
-        DataFrame(Cpv = [], Clv = [], Effectiveness = [], FES = [], Fv = [], Fim = [], Fpv = [], SAP = []) |> CSV.write("result$(episode).csv")
+        DataFrame(Cpv = [], Clv = [], Effectiveness = [], FES = [], Fv = [], Fim = [], Fpv = [], SAP = []) |> CSV.write("../../result/clv-dependent-δmodel/result$(episode).csv")
 
-        for effectiveness in 0:0.1:1.0
+        for Effectiveness in 0:0.1:1.0
             for Clv in 0:0.1:1.0
                 delta = ifelse(Clv == 0, 10^4, 0.25/Clv)
 
-                #results::Vector{Dict{String, Float64}} = Distributed.pmap(Cpv -> Simulation.season_loop(society, Params(beta, gamma, delta, Cpv, Clv, effectiveness, num_initial_i, initial_pv)), 0:0.1:1.0)
-                results::Vector{Dict{String, Float64}} = map(Cpv -> Simulation.season_loop(society, Params(beta, gamma, delta, Cpv, Clv, effectiveness, num_initial_i, initial_pv)), 0:0.1:0.1)
+                #results::Vector{Dict{String, Float64}} = Distributed.pmap(Cpv -> Simulation.season_loop(society, Params(beta, gamma, delta, Cpv, Clv, Effectiveness, num_initial_i, initial_pv)), 0:0.1:1.0)
+                results::Vector{Dict{String, Float64}} = map(Cpv -> Simulation.season_loop(society, Params(beta, gamma, delta, Cpv, Clv, Effectiveness, num_initial_i, initial_pv)), 0:0.1:1.0)
 
                 for result in results
                     DataFrame(Cpv           = [result["Cpv"]],
@@ -433,7 +414,7 @@ module Simulation
                               Fv            = [result["Fv"]],
                               Fim           = [result["Fim"]],
                               Fpv           = [result["Fpv"]],
-                              SAP           = [result["SAP"]]) |> CSV.write("result$(episode).csv", append=true)
+                              SAP           = [result["SAP"]]) |> CSV.write("../../result/clv-dependent-δmodel/result$(episode).csv", append=true)
                 end
             end
         end
