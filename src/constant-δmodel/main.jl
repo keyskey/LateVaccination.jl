@@ -166,10 +166,11 @@ end
             set_total_probability!(society, params)
             #=days = count_elapse_days(society)
             fs, fv, fim, fi, fr = Society.count_state_fraction(society)
-            @printf("Cpv: %.1f Clv: %.1f Effectiveness: %.1f Season: %i Step: %i Days: %.2f Fs: %.4f Fv: %.4f Fim: %.4f Fi: %.4f Fr: %.4f \n",
+            @printf("Cpv: %.1f Clv: %.1f Effectiveness: %.1f δ: %.1f Season: %i Step: %i Days: %.2f Fs: %.4f Fv: %.4f Fim: %.4f Fi: %.4f Fr: %.4f \n",
                     params.Cpv,
                     params.Clv,
-                    params.effectiveness,
+                    params.Effectiveness,
+                    params.delta,
                     season,
                     timestep,
                     days,
@@ -316,10 +317,11 @@ end
             Epidemics.initialize_state!(society, params)
             fs0, fv0, fim0, fi0, fr0 = Society.count_state_fraction(society)
             fpv_this_season = Society.count_fpv(society)
-            @printf("Cpv: %.1f Clv: %.1f Effectiveness: %.1f Season: %i Step: %i Days: %.1f Fs: %.4f Fv: %.4f Fim: %.4f Fi: %.4f Fr: %.4f \n",
+            @printf("Cpv: %.1f Clv: %.1f Effectiveness: %.1f δ: %.1f Season: %i Step: %i Days: %.1f Fs: %.4f Fv: %.4f Fim: %.4f Fi: %.4f Fr: %.4f \n",
                     params.Cpv,
                     params.Clv,
                     params.Effectiveness,
+                    params.delta,
                     season,
                     0,
                     society.elapse_days,
@@ -365,10 +367,11 @@ end
             end
         end
 
-        @printf("Cpv: %.1f Clv: %.1f Effectiveness: %.1f Finished with FES: %.4f Fv: %.4f Fim: %.4f Fpv: %.4f SAP: %.3f \n",
+        @printf("Cpv: %.1f Clv: %.1f Effectiveness: %.1f δ: %.1f Finished with FES: %.4f Fv: %.4f Fim: %.4f Fpv: %.4f SAP: %.3f \n",
                 params.Cpv,
                 params.Clv,
                 params.Effectiveness,
+                params.delta,
                 FES,
                 Fv,
                 Fim,
@@ -378,6 +381,7 @@ end
         result = Dict("Cpv"           => params.Cpv,
                       "Clv"           => params.Clv,
                       "Effectiveness" => params.Effectiveness,
+                      "Delta"         => params.delta,
                       "FES"           => FES,
                       "Fv"            => Fv,
                       "Fim"           => Fim,
@@ -397,7 +401,7 @@ end
         initial_pv::Vector{Int} = Decision.choose_initial_pv(population, num_initial_pv)
         society = SocietyType(population)
 
-        DataFrame(Cpv = [], Clv = [], Effectiveness = [], FES = [], Fv = [], Fim = [], Fpv = [], SAP = []) |> CSV.write("../../result/constant-δmodel/result$(episode).csv")
+        DataFrame(Cpv = [], Clv = [], Effectiveness = [], Delta = [], FES = [], Fv = [], Fim = [], Fpv = [], SAP = []) |> CSV.write("../../result/constant-δmodel/result$(episode).csv")
 
         for Effectiveness in (1.0)
             for Clv in 0:0.1:1.0
@@ -409,6 +413,7 @@ end
                         DataFrame(Cpv           = [result["Cpv"]],
                                   Clv           = [result["Clv"]],
                                   Effectiveness = [result["Effectiveness"]],
+                                  Delta         = [result["Delta"]], 
                                   FES           = [result["FES"]],
                                   Fv            = [result["Fv"]],
                                   Fim           = [result["Fim"]],
@@ -423,7 +428,7 @@ end
 
 using .Simulation
 
-const num_episode = 100
+const num_episode = 50
 const population = 10000
 
 for episode = 1:num_episode
