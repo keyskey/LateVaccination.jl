@@ -83,7 +83,6 @@ end
         for id in 1:society.num_tot
             if id in initial_i
                 society.state[id] = :I
-                # society.num_i += 1
             elseif society.strategy[id] == :P
                 society.vaccinated[id] = true
                 society.num_v += 1
@@ -363,7 +362,7 @@ end
         delta = 0.25
         eps = 0.1
         num_initial_i = 5
-        num_initial_pv = div(population, 10)
+        num_initial_pv = div(population, 2)
         initial_pv = Decision.choose_initial_pv(population, num_initial_pv)
         society = SocietyType(population)
 
@@ -371,7 +370,7 @@ end
 
         DataFrame(Cpv = [], Clv = [], Effectiveness = [], FES = [], Fv = [], Fpv = [], SAP = []) |> CSV.write(result_file(delta))
 
-        for Effectiveness in (0.8) # (0.1, 0.3, 0.5, 0.8, 1.0)
+        for Effectiveness in (0.1, 0.5, 0.8, 1.0)
             for Clv in 0:0.1:1.0
                 results::Vector{Dict{String, Float64}} = Distributed.pmap(Cpv -> Simulation.season_loop(society, Params(beta, gamma, delta, eps, Cpv, Clv, Effectiveness, num_initial_i, initial_pv)), 0:0.1:1.0)
                 # results::Vector{Dict{String, Float64}} = map(Cpv -> Simulation.season_loop(society, Params(beta, gamma, delta, eps, Cpv, Clv, Effectiveness, num_initial_i, initial_pv)), 0:0.1:1.0)
@@ -392,8 +391,8 @@ end
 
 using .Simulation
 
-const num_episode = 1
-const population = 100
+const num_episode = 50
+const population = 10000
 
 for episode = 1:num_episode
     Simulation.one_episode(population, episode)
