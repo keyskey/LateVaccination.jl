@@ -2,8 +2,7 @@
 # julia -p n main.jl  n: number of process
 # after checking out the comment out at the beginning of each modules
 
-#@everywhere module Society
-module Society
+@everywhere module Society
     using Statistics
     export SocietyType, Params
 
@@ -14,8 +13,8 @@ module Society
         num_im::Int
         num_i::Int
         num_r::Int
-        state::Vector{AbstractString}       # S, IM, I, R
-        strategy::Vector{AbstractString}    # PV or LV
+        state::Vector{Symbol}         # :S, :IM, :I, :R
+        strategy::Vector{Symbol}      # :P or :L
         point::Vector{Float64}
         survivors::Vector{Int}
         total_probability::Float64
@@ -30,8 +29,8 @@ module Society
             0,                                  # num_im
             0,                                  # num_i
             0,                                  # num_r
-            fill(" ", population),              # state
-            fill(" ", population),              # strategy
+            fill(Symbol(""), population),       # state
+            fill(Symbol(""), population),       # strategy
             zeros(population),                  # point
             Vector(1:population),               # survivors
             0,                                  # total_probability
@@ -44,6 +43,7 @@ module Society
         beta::Float64
         gamma::Float64
         delta::Float64
+        eps::Float64
         Cpv::Float64
         Clv::Float64
         Effectiveness::Float64
@@ -54,23 +54,19 @@ module Society
     function count_state_fraction(society::SocietyType)
         fs = society.num_s/society.num_tot
         fv = society.num_v/society.num_tot
-        fim = society.num_im/society.num_tot
         fi = society.num_i/society.num_tot
         fr = society.num_r/society.num_tot
 
-        return fs, fv, fim, fi, fr
+        return fs, fv, fi, fr
     end
 
-    count_fpv(society::SocietyType) = length(filter(strategy -> strategy == "PV", society.strategy))/society.num_tot
+    count_fpv(society::SocietyType) = length(society.strategy[society.strategy .== :P])/society.num_tot
 
     count_sap(society::SocietyType) = Statistics.mean(society.point)
 end
 
-#@everywhere module Epidemics
-module Epidemics
-    using StatsBase
-    using Random
-    using Printf
+@everywhere module Epidemics
+    using StatsBase, Random, Printf
     using ..Society
 
     function initialize_state!(society::SocietyType, params::Params)
@@ -79,26 +75,27 @@ module Epidemics
         society.elapse_days = 0
 
         # Choose initial infected agent from LV
-        LV_id = [id for (id, strategy) in enumerate(society.strategy) if strategy == "LV"]
+        LV_id = [id for (id, strategy) in enumerate(society.strategy) if strategy == :L]
         initial_i::Vector{Int} = StatsBase.self_avoid_sample!(LV_id, Vector(1:params.num_initial_i))
-        society.num_s = society.num_v = society.num_im = society.num_i = society.num_r = 0  # Need to count!!
+
+        society.num_s, society.num_v, society.num_im, society.num_i, society.num_r = 0, 0, 0, params.num_initial_i, 0
+
         for id in 1:society.num_tot
             if id in initial_i
-                society.state[id] = "I"
-                society.num_i += 1
-            elseif society.strategy[id] == "PV"
+                society.state[id] = :I
+            elseif society.strategy[id] == :P
                 society.vaccinated[id] = true
                 society.num_v += 1
                 if rand() < params.Effectiveness
-                    society.state[id] = "IM"
+                    society.state[id] = :IM
                     society.num_im += 1
                     deleteat!(society.survivors, findfirst(isequal(id), society.survivors))
                 else
-                    society.state[id] = "S"
+                    society.state[id] = :S
                     society.num_s += 1
                 end
             else
-                society.state[id] = "S"
+                society.state[id] = :S
                 society.num_s += 1
             end
         end
@@ -114,19 +111,19 @@ module Epidemics
         society.total_probability = Ps_i * society.num_s + Pi_r * society.num_i + P_v * num_healthy_non_v
     end
 
-    count_num_healthy_non_v(society::SocietyType) = length([id for id in society.survivors if society.state[id] == "S" && society.vaccinated[id] == false])
+    count_num_healthy_non_v(society::SocietyType) = length([id for id in society.survivors if society.state[id] == :S && society.vaccinated[id] == false])
 
-    count_vaccination_probability(society::SocietyType, params::Params) = params.delta * society.num_i/(society.num_v + 1)
+    count_vaccination_probability(society::SocietyType, params::Params) = params.delta * society.num_i / (params.Clv * society.num_v + params.eps)
 
     function one_season!(society::SocietyType, params::Params, season::Int)
         for timestep in 1:1000000
             rand_num = rand()
             accum_probability = 0.0
             go_to_state_change = true
-            someone_selected = false
+            # someone_selected = false
 
             total_state_change_probability = params.beta * society.num_i * society.num_s + params.gamma * society.num_i
-            if rand_num >= total_state_change_probability/society.total_probability
+            if rand_num >= total_state_change_probability / society.total_probability
                 accum_probability += total_state_change_probability
                 go_to_state_change = false
             end
@@ -136,9 +133,9 @@ module Epidemics
                 Ps_i = params.beta * society.num_i
                 Pi_r = params.gamma
                 for id in society.survivors
-                    if society.state[id] == "S"
+                    if society.state[id] == :S
                         accum_probability += Ps_i
-                    elseif society.state[id] == "I"
+                    elseif society.state[id] == :I
                         accum_probability += Pi_r
                     end
                     if rand_num <= accum_probability/society.total_probability
@@ -152,7 +149,7 @@ module Epidemics
             else
                 P_v = count_vaccination_probability(society, params)
                 for id in society.survivors
-                    if society.state[id] == "S" && society.vaccinated[id] == false
+                    if society.state[id] == :S && society.vaccinated[id] == false
                         accum_probability += P_v
                         if rand_num <= accum_probability/society.total_probability
                             vaccination!(society, id, params)
@@ -165,24 +162,13 @@ module Epidemics
 
             set_total_probability!(society, params)
             days = count_elapse_days(society)
-            fs, fv, fim, fi, fr = Society.count_state_fraction(society)
-            @printf("Cpv: %.1f Clv: %.1f Effectiveness: %.1f Season: %i Step: %i Days: %.2f Fs: %.4f Fv: %.4f Fim: %.4f Fi: %.4f Fr: %.4f \n",
-                    params.Cpv,
-                    params.Clv,
-                    params.Effectiveness,
-                    season,
-                    timestep,
-                    days,
-                    fs,
-                    fv,
-                    fim,
-                    fi,
-                    fr)
 
+            """
             # Error catch
             if someone_selected == false
                 error("Error in one_season, no one selected !!")
             end
+            """
 
             # Check conversion
             if society.num_i == 0
@@ -192,12 +178,12 @@ module Epidemics
     end
 
     function state_change!(society::SocietyType, id::Int)
-        if society.state[id] == "S"
-            next_state = "I"
+        if society.state[id] == :S
+            next_state = :I
             society.num_s -= 1
             society.num_i += 1
-        elseif society.state[id] == "I"
-            next_state = "R"
+        elseif society.state[id] == :I
+            next_state =  :R
             society.num_i -= 1
             society.num_r += 1
             deleteat!(society.survivors, findfirst(isequal(id), society.survivors))
@@ -209,7 +195,7 @@ module Epidemics
         society.vaccinated[id] = true
         society.num_v += 1
         if rand() < params.Effectiveness
-            society.state[id] = "IM"
+            society.state[id] = :IM
             society.num_s -= 1
             society.num_im += 1
             deleteat!(society.survivors, findfirst(isequal(id), society.survivors))
@@ -223,8 +209,7 @@ module Epidemics
     end
 end
 
-#@everywhere module Decision
-module Decision
+@everywhere module Decision
     using StatsBase
     using ..Society
 
@@ -235,33 +220,33 @@ module Decision
     end
 
     function initialize_strategy!(society::SocietyType, params::Params)
-        society.strategy = map(id -> ifelse(id in params.initial_pv, "PV", "LV"), 1:society.num_tot)
+        society.strategy = map(id -> ifelse(id in params.initial_pv, :P, :L), 1:society.num_tot)
     end
 
     function count_payoff!(society::SocietyType, params::Params)
         Cpv = params.Cpv
         Clv = params.Clv
         for id in 1:society.num_tot
-            if society.strategy[id] == "PV"
+            if society.strategy[id] == :P
                 # Healthy Pre-emptive Vaccinators
-                if society.state[id] in ("S", "IM")
+                if society.state[id] in (:S, :IM)
                     society.point[id] = -Cpv
                 # Infected Pre-emptive Vaccinators
-                elseif society.state[id] == "R"
+                elseif society.state[id] == :R
                     society.point[id] = -Cpv-1
                 end
-            elseif society.strategy[id] == "LV"
+            elseif society.strategy[id] == :L
                 # Healthy Late Vaccinators
-                if society.state[id] == "IM" || (society.state[id] == "S" && society.vaccinated[id] == true)
+                if society.state[id] == :IM || (society.state[id] == :S && society.vaccinated[id] == true)
                     society.point[id] = -Clv
                 # Healthy Non-Vaccinators
-                elseif society.state[id] == "S" && society.vaccinated[id] == false
+                elseif society.state[id] == :S && society.vaccinated[id] == false
                     society.point[id] = 0
                 # Infected Late Vaccinators
-                elseif society.state[id] == "R" && society.vaccinated[id] == true
+                elseif society.state[id] == :R && society.vaccinated[id] == true
                     society.point[id] = -Clv-1
                 # Infected non-vaccinators
-                elseif society.state[id] == "R" && society.vaccinated[id] == false
+                elseif society.state[id] == :R && society.vaccinated[id] == false
                     society.point[id] = -1
                 end
             end
@@ -269,7 +254,7 @@ module Decision
     end
 
     function update_strategy!(society::SocietyType)
-        next_strategy::Vector{AbstractString} = copy(society.strategy)
+        next_strategy = copy(society.strategy)
         for id in 1:society.num_tot
             opp_id = rand(1:society.num_tot)
             while opp_id == id
@@ -285,28 +270,16 @@ module Decision
     end
 end
 
-#@everywhere module Simulation
-module Simulation
-    using Distributed
-    using Random
-    using CSV
-    using DataFrames
-    using Statistics
-    using Printf
-    using ..Epidemics
-    using ..Decision
-    using ..Society
+@everywhere module Simulation
+    using Distributed, Random, CSV, DataFrames, Statistics, Printf
+    using ..Epidemics, ..Decision, ..Society
 
     # Calculation for a pair of (Cpv, Clv, Effectiveness).
     function season_loop(society::SocietyType, params::Params)
         ###################### Initialization #####################
         Decision.initialize_strategy!(society, params)
         fpv0 = Society.count_fpv(society)
-        fes_hist = []
-        fv_hist  = []
-        fim_hist = []
-        sap_hist = []
-        fpv_hist = [fpv0]
+        fes_hist, fv_hist, sap_hist, fpv_hist = [], [], [], [fpv0]
         season = 0
         ###########################################################
 
@@ -314,9 +287,9 @@ module Simulation
             ######################## Initialization ########################
             season += 1
             Epidemics.initialize_state!(society, params)
-            fs0, fv0, fim0, fi0, fr0 = Society.count_state_fraction(society)
+            fs0, fv0, fi0, fr0 = Society.count_state_fraction(society)
             fpv_this_season = Society.count_fpv(society)
-            @printf("Cpv: %.1f Clv: %.1f Effectiveness: %.1f Season: %i Step: %i Days: %.1f Fs: %.4f Fv: %.4f Fim: %.4f Fi: %.4f Fr: %.4f \n",
+            @printf("Cpv: %.1f Clv: %.1f Effectiveness: %.1f Season: %i Step: %i Days: %.1f Fs: %.4f Fv: %.4f Fi: %.4f Fr: %.4f \n",
                     params.Cpv,
                     params.Clv,
                     params.Effectiveness,
@@ -325,7 +298,6 @@ module Simulation
                     society.elapse_days,
                     fs0,
                     fv0,
-                    fim0,
                     fi0,
                     fr0)
             ################################################################
@@ -336,12 +308,11 @@ module Simulation
             Decision.update_strategy!(society)
 
             # Get final state
-            fs, fv, fim, fi, fes = Society.count_state_fraction(society)
+            fs, fv, fi, fes = Society.count_state_fraction(society)
             sap = Society.count_sap(society)
             fpv_next_season = Society.count_fpv(society)
             push!(fes_hist, fes)
             push!(fv_hist, fv)
-            push!(fim_hist, fim)
             push!(sap_hist, sap)
             push!(fpv_hist, fpv_next_season)
 
@@ -350,7 +321,6 @@ module Simulation
                 # Use the value at the previous season as a final solution
                 global FES = fes_hist[end]
                 global Fv = fv_hist[end]
-                global Fim = fim_hist[end]
                 global SAP = sap_hist[end]
                 global Fpv = fpv_hist[end-1]
                 break
@@ -358,20 +328,18 @@ module Simulation
             elseif (season >= 100 && abs(Statistics.mean(fpv_hist[season-99:season]) - fpv_next_season) < 0.001) || season == 500
                 global FES = Statistics.mean(fes_hist[season-99:season])
                 global Fv  = Statistics.mean(fv_hist[season-99:season])
-                global Fim = Statistics.mean(fim_hist[season-99:season])
                 global SAP = Statistics.mean(sap_hist[season-99:season])
                 global Fpv = Statistics.mean(fpv_hist[season-99:season])
                 break
             end
         end
 
-        @printf("Cpv: %.1f Clv: %.1f Effectiveness: %.1f Finished with FES: %.4f Fv: %.4f Fim: %.4f Fpv: %.4f SAP: %.3f \n",
+        @printf("Cpv: %.1f Clv: %.1f Effectiveness: %.1f Finished with FES: %.4f Fv: %.4f Fpv: %.4f SAP: %.3f \n",
                 params.Cpv,
                 params.Clv,
                 params.Effectiveness,
                 FES,
                 Fv,
-                Fim,
                 Fpv,
                 SAP)
 
@@ -380,7 +348,6 @@ module Simulation
                       "Effectiveness" => params.Effectiveness,
                       "FES"           => FES,
                       "Fv"            => Fv,
-                      "Fim"           => Fim,
                       "Fpv"           => Fpv,
                       "SAP"           => SAP)
 
@@ -390,21 +357,23 @@ module Simulation
     # Get data for one Cr-Effectiveness phase diagram
     function one_episode(population::Int, episode::Int)
         Random.seed!()
-        beta::Float64 = 0.000086
-        gamma::Float64 = 1/3
-        num_initial_i::Int = 5
-        num_initial_pv::Int = div(population, 10)
-        initial_pv::Vector{Int} = Decision.choose_initial_pv(population, num_initial_pv)
+        beta = 0.000086
+        gamma = 1/3
+        delta = 0.25
+        eps = 0.1
+        num_initial_i = 5
+        num_initial_pv = div(population, 2)
+        initial_pv = Decision.choose_initial_pv(population, num_initial_pv)
         society = SocietyType(population)
 
-        DataFrame(Cpv = [], Clv = [], Effectiveness = [], FES = [], Fv = [], Fim = [], Fpv = [], SAP = []) |> CSV.write("../../result/clv-dependent-δmodel/result$(episode).csv")
+        result_file(delta) = "../../result/clv-dependent-δmodel/corrected_ver/result$(episode)_δ_$(delta).csv"
 
-        for Effectiveness in 0:0.1:1.0
+        DataFrame(Cpv = [], Clv = [], Effectiveness = [], FES = [], Fv = [], Fpv = [], SAP = []) |> CSV.write(result_file(delta))
+
+        for Effectiveness in (0.1, 0.5, 0.8, 1.0)
             for Clv in 0:0.1:1.0
-                delta = ifelse(Clv == 0, 10^4, 0.25/Clv)
-
-                #results::Vector{Dict{String, Float64}} = Distributed.pmap(Cpv -> Simulation.season_loop(society, Params(beta, gamma, delta, Cpv, Clv, Effectiveness, num_initial_i, initial_pv)), 0:0.1:1.0)
-                results::Vector{Dict{String, Float64}} = map(Cpv -> Simulation.season_loop(society, Params(beta, gamma, delta, Cpv, Clv, Effectiveness, num_initial_i, initial_pv)), 0:0.1:1.0)
+                results::Vector{Dict{String, Float64}} = Distributed.pmap(Cpv -> Simulation.season_loop(society, Params(beta, gamma, delta, eps, Cpv, Clv, Effectiveness, num_initial_i, initial_pv)), 0:0.1:1.0)
+                # results::Vector{Dict{String, Float64}} = map(Cpv -> Simulation.season_loop(society, Params(beta, gamma, delta, eps, Cpv, Clv, Effectiveness, num_initial_i, initial_pv)), 0:0.1:1.0)
 
                 for result in results
                     DataFrame(Cpv           = [result["Cpv"]],
@@ -412,9 +381,8 @@ module Simulation
                               Effectiveness = [result["Effectiveness"]],
                               FES           = [result["FES"]],
                               Fv            = [result["Fv"]],
-                              Fim           = [result["Fim"]],
                               Fpv           = [result["Fpv"]],
-                              SAP           = [result["SAP"]]) |> CSV.write("../../result/clv-dependent-δmodel/result$(episode).csv", append=true)
+                              SAP           = [result["SAP"]]) |> CSV.write(result_file(delta), append=true)
                 end
             end
         end
@@ -423,7 +391,7 @@ end
 
 using .Simulation
 
-const num_episode = 1
+const num_episode = 50
 const population = 10000
 
 for episode = 1:num_episode
